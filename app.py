@@ -46,7 +46,7 @@ def detect_term_type(text):
     t = text.lower()
     if "perpetual" in t or "until terminated" in t:
         return "Perpetual"
-    if any(x in t for x in ["expires", "valid for", "term of", "terminate", "continue through"]):
+    if any(x in t for x in ["expires", "valid for", "term of", "terminate", "continue through", "remain in effect"]):
         return "Fixed"
     return ""
 
@@ -67,7 +67,7 @@ def extract_date(text, label):
 def extract_relative_expiry(text, eff_date):
     if not eff_date:
         return ""
-    match = re.search(r"(?i)(remain in effect|continue|valid).*?(three \(3\)|two \(2\)|one \(1\)|1|2|3|one|two|three).*?(year|years)", text)
+    match = re.search(r"(?i)(remain in effect|continue|valid).*?(three\s*\(3\)|two\s*\(2\)|one\s*\(1\)|1|2|3|one|two|three).*?(year|years)", text)
     if match:
         val = match.group(2).lower().strip()
         years_map = {
@@ -75,11 +75,12 @@ def extract_relative_expiry(text, eff_date):
             "two": 2, "two (2)": 2, "2": 2,
             "three": 3, "three (3)": 3, "3": 3
         }
+        val = re.sub(r"[^a-z0-9]", "", val)
         try:
-            years = years_map.get(val.replace("(", "").replace(")", ""), 0)
+            years = years_map.get(val, 0)
             start = datetime.strptime(eff_date, "%B %d, %Y")
             return (start + timedelta(days=365 * years)).strftime("%B %d, %Y")
-        except Exception:
+        except:
             return ""
     return ""
 
@@ -91,7 +92,7 @@ def extract_entity(text, entity_list):
 
 def extract_entities_from_intro(text):
     patterns = [
-        r"(?i)between\s+(.*?Inc\.|.*?LLC|.*?Ltd\.|.*?Corporation|.*?Company)[\s,\n]+and\s+(.*?Inc\.|.*?LLC|.*?Ltd\.|.*?Corporation|.*?Company)",
+        r"(?i)between\s+(.*?Stores Inc\.|.*?Communications, Inc\.|.*?Inc\.|.*?LLC|.*?Ltd\.|.*?Corporation|.*?Company)[\s,\n]+and\s+(.*?Inc\.|.*?LLC|.*?Ltd\.|.*?Corporation|.*?Company)",
         r"(?i)this agreement.*?by and between\s+(.*?Inc\.|.*?LLC|.*?Ltd\.|.*?Corporation|.*?Company)\s+and\s+(.*?Inc\.|.*?LLC|.*?Ltd\.|.*?Corporation|.*?Company)"
     ]
     for pattern in patterns:
@@ -101,7 +102,7 @@ def extract_entities_from_intro(text):
     return "", ""
 
 def extract_governing_law(text):
-    match = re.search(r"governed by the laws of\s+(?:the\s+)?(?:state|province)?\s*of\s*([A-Za-z\s]+)", text, re.IGNORECASE)
+    match = re.search(r"governed by the laws of\s+(?:the\s+)?(?:state|province)?\s*of\s*([A-Za-z\s]+)[\.,\n]", text, re.IGNORECASE)
     return match.group(1).strip() if match else ""
 
 def extract_payment_term(text):
@@ -118,8 +119,8 @@ def detect_missing_exhibits(text):
 def extract_fields(text):
     effective = extract_date(text, "effective|start date|commence")
     expiry = extract_date(text, "expire|end date|terminate") or extract_relative_expiry(text, effective)
-    customer = extract_entity(text, ["Circle K", "Couche-Tard", "Mac's Convenience Stores"])
-    supplier = extract_entity(text, ["Zycus", "Zillion", "Zoom", "PDI", "Worldline", "Workday"])
+    customer = extract_entity(text, ["Circle K Stores Inc.", "Couche-Tard", "Mac's Convenience Stores"])
+    supplier = extract_entity(text, ["Zycus Inc.", "Zillion", "Zoom Video Communications, Inc.", "PDI", "Worldline", "Workday"])
     if not customer or not supplier:
         c2, s2 = extract_entities_from_intro(text)
         customer = customer or c2
