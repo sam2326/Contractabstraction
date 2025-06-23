@@ -52,10 +52,12 @@ def detect_term_type(text):
     return ""
 
 def extract_date(text, label):
-    pattern = rf"{label}.*?(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{{1,2}},\s+\d{{4}}"
-    match = re.search(pattern, text, re.IGNORECASE)
+    pattern = rf"(?i){label}.*?(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{{1,2}},\s+\d{{4}}"
+    match = re.search(pattern, text)
     if match:
-        return match.group(1) + " " + re.findall(r"\d{1,2},\s+\d{4}", match.group())[0]
+        date_match = re.search(r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}", match.group(), re.IGNORECASE)
+        if date_match:
+            return date_match.group(0)
     return ""
 
 def extract_relative_expiry(text, eff_date):
