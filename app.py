@@ -17,6 +17,21 @@ def extract_text_from_pdf(uploaded_file):
     return text
 
 def extract_field_patterns(text):
+    if len(text.strip()) < 50:
+        return {
+            "Document Type": "Unknown",
+            "Term Type": "",
+            "Effective Date": "",
+            "Expiry Date": "",
+            "Customer Legal Entity": "",
+            "Supplier Legal Entity": "",
+            "Governing Law": "",
+            "Payment Term": "Not specified",
+            "Is Document Complete?": "Yes",
+            "Missing Exhibits/Schedules?": "No",
+            "Comments": "PDF appears to be image-based. OCR required."
+        }
+
     effective = extract_effective_date(text)
     expiry = extract_expiry_date(text, effective)
     fields = {
