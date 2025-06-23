@@ -5,12 +5,15 @@ import fitz  # PyMuPDF
 import io
 import zipfile
 
+# === Configuration ===
+
 # Optional: Set Tesseract path if it's not in system PATH
 # pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
-# Optional: Set Poppler path for Windows if not in PATH
-# poppler_path = r"C:\Users\SUNUM\Downloads\Release-24.08.0-0\poppler-24.08.0\Library\bin"
-poppler_path = None  # leave as None if already in PATH
+# ✅ Set Poppler path for Windows if it's not in PATH
+poppler_path = r"C:\Users\SUNUM\Downloads\Release-24.08.0-0\poppler-24.08.0\Library\bin"
+
+# ======================
 
 st.set_page_config(page_title="PDF OCR Extractor", layout="wide")
 st.title("📄 OCR PDF Extractor")
@@ -28,6 +31,7 @@ def extract_text(pdf_bytes):
         pass
 
     if len(text.strip()) < 50:
+        st.warning("No text found in PDF — using OCR to extract text from scanned images...")
         images = convert_from_bytes(pdf_bytes, poppler_path=poppler_path)
         text = ""
         for img in images:
@@ -43,7 +47,7 @@ if uploaded_files:
             text = extract_text(pdf_bytes)
             filename = file.name.replace(".pdf", ".txt")
             zipf.writestr(filename, text)
-            st.subheader(f"📝 Extracted: {file.name}")
+            st.subheader(f"📝 Extracted Text from: {file.name}")
             st.text_area("Text Preview", text[:5000], height=200)
 
     st.download_button(
