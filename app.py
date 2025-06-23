@@ -67,13 +67,18 @@ def extract_date(text, label):
 def extract_relative_expiry(text, eff_date):
     if not eff_date:
         return ""
-    match = re.search(r"(?i)(remain in effect|continue|valid).*?(one|two|three|1|2|3)(\s*\(\d\))?\s+(year|years)", text)
+    match = re.search(r"(?i)(remain in effect|continue|valid).*?(three \(3\)|two \(2\)|one \(1\)|1|2|3|one|two|three).*?(year|years)", text)
     if match:
-        word = match.group(2).lower()
-        years = {"one": 1, "two": 2, "three": 3, "1": 1, "2": 2, "3": 3}
+        val = match.group(2).lower().strip()
+        years_map = {
+            "one": 1, "one (1)": 1, "1": 1,
+            "two": 2, "two (2)": 2, "2": 2,
+            "three": 3, "three (3)": 3, "3": 3
+        }
         try:
+            years = years_map.get(val.replace("(", "").replace(")", ""), 0)
             start = datetime.strptime(eff_date, "%B %d, %Y")
-            return (start + timedelta(days=365 * years[word])).strftime("%B %d, %Y")
+            return (start + timedelta(days=365 * years)).strftime("%B %d, %Y")
         except Exception:
             return ""
     return ""
@@ -86,9 +91,8 @@ def extract_entity(text, entity_list):
 
 def extract_entities_from_intro(text):
     patterns = [
-        r"(?i)(?:by and )?between\s+(.+?)\s+and\s+(.+?)[\.,\n]",
-        r"(?i)entered into by\s+(.+?)\s+and\s+(.+?)[\.,\n]",
-        r"(?i)this agreement.*?made.*?between\s+(.+?)\s+and\s+(.+?)[\.,\n]"
+        r"(?i)between\s+(.*?Inc\.|.*?LLC|.*?Ltd\.|.*?Corporation|.*?Company)[\s,\n]+and\s+(.*?Inc\.|.*?LLC|.*?Ltd\.|.*?Corporation|.*?Company)",
+        r"(?i)this agreement.*?by and between\s+(.*?Inc\.|.*?LLC|.*?Ltd\.|.*?Corporation|.*?Company)\s+and\s+(.*?Inc\.|.*?LLC|.*?Ltd\.|.*?Corporation|.*?Company)"
     ]
     for pattern in patterns:
         match = re.search(pattern, text)
