@@ -17,7 +17,6 @@ def extract_text_from_pdf(uploaded_file):
         for page in doc:
             page_text = page.get_text()
             if not page_text.strip():
-                # OCR fallback
                 pix = page.get_pixmap(dpi=300)
                 img = Image.open(io.BytesIO(pix.tobytes("png")))
                 page_text = pytesseract.image_to_string(img)
@@ -66,22 +65,36 @@ def extract_date(text, label):
     return ""
 
 def extract_relative_expiry(text, eff_date):
-    match = re.search(r"(?i)(remain in effect|continue).*?(one|two|three|1|2|3).*?(year|years)", text)
-    if match and eff_date:
+    if not eff_date:
+        return ""
+    match = re.search(r"(?i)(remain in effect|continue|valid).*?(one|two|three|1|2|3)(\s*\(\d\))?\s+(year|years)", text)
+    if match:
+        word = match.group(2).lower()
         years = {"one": 1, "two": 2, "three": 3, "1": 1, "2": 2, "3": 3}
-        val = match.group(2).lower()
         try:
-            base = datetime.strptime(eff_date, "%B %d, %Y")
-            return (base + timedelta(days=365 * years[val])).strftime("%B %d, %Y")
-        except:
+            start = datetime.strptime(eff_date, "%B %d, %Y")
+            return (start + timedelta(days=365 * years[word])).strftime("%B %d, %Y")
+        except Exception:
             return ""
     return ""
 
 def extract_entity(text, entity_list):
     for e in entity_list:
-        if re.search(rf"\\b{re.escape(e)}\\b", text, re.IGNORECASE):
+        if re.search(rf"\b{re.escape(e)}\b", text, re.IGNORECASE):
             return e
     return ""
+
+def extract_entities_from_intro(text):
+    patterns = [
+        r"(?i)(?:by and )?between\s+(.+?)\s+and\s+(.+?)[\.,\n]",
+        r"(?i)entered into by\s+(.+?)\s+and\s+(.+?)[\.,\n]",
+        r"(?i)this agreement.*?made.*?between\s+(.+?)\s+and\s+(.+?)[\.,\n]"
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1).strip(), match.group(2).strip()
+    return "", ""
 
 def extract_governing_law(text):
     match = re.search(r"governed by the laws of\s+(?:the\s+)?(?:state|province)?\s*of\s*([A-Za-z\s]+)", text, re.IGNORECASE)
@@ -101,13 +114,19 @@ def detect_missing_exhibits(text):
 def extract_fields(text):
     effective = extract_date(text, "effective|start date|commence")
     expiry = extract_date(text, "expire|end date|terminate") or extract_relative_expiry(text, effective)
+    customer = extract_entity(text, ["Circle K", "Couche-Tard", "Mac's Convenience Stores"])
+    supplier = extract_entity(text, ["Zycus", "Zillion", "Zoom", "PDI", "Worldline", "Workday"])
+    if not customer or not supplier:
+        c2, s2 = extract_entities_from_intro(text)
+        customer = customer or c2
+        supplier = supplier or s2
     return {
         "Document Type": detect_document_type(text),
         "Term Type": detect_term_type(text),
         "Effective Date": effective,
         "Expiry Date": expiry,
-        "Customer Legal Entity": extract_entity(text, ["Circle K", "Couche-Tard", "Mac's Convenience Stores"]),
-        "Supplier Legal Entity": extract_entity(text, ["Zycus", "Zillion", "Zoom", "PDI", "Worldline", "Workday"]),
+        "Customer Legal Entity": customer,
+        "Supplier Legal Entity": supplier,
         "Governing Law": extract_governing_law(text),
         "Payment Term": extract_payment_term(text),
         "Is Document Complete?": "Yes",
