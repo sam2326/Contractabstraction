@@ -54,7 +54,7 @@ def detect_term_type(text):
 def extract_date(text, label):
     patterns = [
         rf"(?i){label}.*?(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{{1,2}},\s+\d{{4}}",
-        r"(?i)this agreement.*?as of\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}",
+        r"(?i)this agreement.*?(is )?(made and )?(entered into )?(as of )?(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}",
         r"(?i)dated\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}"
     ]
     for pattern in patterns:
@@ -79,13 +79,13 @@ def extract_relative_expiry(text, eff_date):
 
 def extract_entity(text, entity_list):
     for e in entity_list:
-        if re.search(re.escape(e), text, re.IGNORECASE):
+        if re.search(rf"\\b{re.escape(e)}\\b", text, re.IGNORECASE):
             return e
     return ""
 
 def extract_governing_law(text):
-    match = re.search(r"governed by.*?(state|province)?\s*of\s*([\w\s]+)[\.,]", text, re.IGNORECASE)
-    return match.group(2).strip() if match else ""
+    match = re.search(r"governed by the laws of\s+(?:the\s+)?(?:state|province)?\s*of\s*([A-Za-z\s]+)", text, re.IGNORECASE)
+    return match.group(1).strip() if match else ""
 
 def extract_payment_term(text):
     match = re.search(r"net\s+(30|45|60|90)", text, re.IGNORECASE)
