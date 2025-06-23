@@ -49,16 +49,17 @@ def detect_document_type(text):
 def detect_term_type(text):
     t = text.lower()
     if "perpetual" in t: return "Perpetual"
-    if "term of" in t or "expires" in t or "shall continue" in t: return "Fixed"
+    if "term of" in t or "expires" in t or "shall continue" in t or "remain in effect for" in t or "terminate on" in t:
+        return "Fixed"
     return ""
 
 def extract_effective_date(text):
-    match = re.search(r"(?i)effective\s+(?:date)?\s*(?:as of)?\s*(\w+\s+\d{1,2},\s+\d{4})", text)
-    return match.group(1) if match else ""
+    match = re.search(r"(?i)(effective|start date|commence[s]?)\s*(as of)?\s*[:,]?\s*(\w+\s+\d{1,2},\s+\d{4})", text)
+    return match.group(3) if match else ""
 
 def extract_expiry_date(text):
-    match = re.search(r"(?i)(expires?|until)\s+(\w+\s+\d{1,2},\s+\d{4})", text)
-    return match.group(2) if match else ""
+    match = re.search(r"(?i)(expire[s]?|end date|terminate[s]?)\s*(on|until)?\s*[:,]?\s*(\w+\s+\d{1,2},\s+\d{4})", text)
+    return match.group(3) if match else ""
 
 def extract_entity(text, known_entities):
     for entity in known_entities:
@@ -67,8 +68,8 @@ def extract_entity(text, known_entities):
     return ""
 
 def extract_governing_law(text):
-    match = re.search(r"(?i)governed by the laws of\s+(?:the state of\s+)?([\w ,]+)", text)
-    return match.group(1) if match else ""
+    match = re.search(r"(?i)governed by.*?(state|province)?\s*of\s*([\w, ]+)", text)
+    return match.group(2).strip() if match else ""
 
 def extract_payment_terms(text):
     match = re.search(r"(?i)net\s+(30|45|60|90)", text)
