@@ -3,6 +3,7 @@ import fitz  # PyMuPDF
 import pandas as pd
 import re
 from io import BytesIO
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Contract Metadata Extractor", layout="wide")
 st.title("📄 Contract Metadata Extractor (PDF)")
@@ -16,11 +17,13 @@ def extract_text_from_pdf(uploaded_file):
     return text
 
 def extract_field_patterns(text):
+    effective = extract_effective_date(text)
+    expiry = extract_expiry_date(text, effective)
     fields = {
         "Document Type": detect_document_type(text),
         "Term Type": detect_term_type(text),
-        "Effective Date": extract_effective_date(text),
-        "Expiry Date": extract_expiry_date(text),
+        "Effective Date": effective,
+        "Expiry Date": expiry,
         "Customer Legal Entity": extract_entity(text, ["Circle K", "Couche-Tard", "Mac's Convenience Stores"]),
         "Supplier Legal Entity": extract_entity(text, ["WorkJam", "Zycus", "Zillion", "Worldline", "PDI", "Zoom", "Zayo"]),
         "Governing Law": extract_governing_law(text),
@@ -54,12 +57,32 @@ def detect_term_type(text):
     return ""
 
 def extract_effective_date(text):
-    match = re.search(r"(?i)(effective|start date|commence[s]?)\s*(as of)?\s*[:,]?\s*(\w+\s+\d{1,2},\s+\d{4})", text)
-    return match.group(3) if match else ""
+    patterns = [
+        r"(?i)effective.*?(\w+\s+\d{1,2},\s+\d{4})",
+        r"(?i)dated.*?(\w+\s+\d{1,2},\s+\d{4})",
+        r"(?i)this agreement.*?as of\s+(\w+\s+\d{1,2},\s+\d{4})"
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1)
+    return ""
 
-def extract_expiry_date(text):
-    match = re.search(r"(?i)(expire[s]?|end date|terminate[s]?)\s*(on|until)?\s*[:,]?\s*(\w+\s+\d{1,2},\s+\d{4})", text)
-    return match.group(3) if match else ""
+def extract_expiry_date(text, effective):
+    match = re.search(r"(?i)(expire[s]?|terminate[s]?)\s*(on|until)?\s*[:,]?\s*(\w+\s+\d{1,2},\s+\d{4})", text)
+    if match:
+        return match.group(3)
+
+    match = re.search(r"(?i)remain in effect for\s+(one|two|three|1|2|3)\s+year", text)
+    if match and effective:
+        num = match.group(1).lower()
+        years = {"one": 1, "two": 2, "three": 3, "1": 1, "2": 2, "3": 3}
+        try:
+            eff = datetime.strptime(effective, "%B %d, %Y")
+            return (eff + timedelta(days=365 * years[num])).strftime("%B %d, %Y")
+        except:
+            return ""
+    return ""
 
 def extract_entity(text, known_entities):
     for entity in known_entities:
@@ -68,8 +91,10 @@ def extract_entity(text, known_entities):
     return ""
 
 def extract_governing_law(text):
-    match = re.search(r"(?i)governed by.*?(state|province)?\s*of\s*([\w, ]+)", text)
-    return match.group(2).strip() if match else ""
+    match = re.search(r"(?i)governed by.*?(state|province)?\s*of\s*([\w, ]+)[\.;\n]", text)
+    if match:
+        return match.group(2).strip().rstrip(",.;")
+    return ""
 
 def extract_payment_terms(text):
     match = re.search(r"(?i)net\s+(30|45|60|90)", text)
