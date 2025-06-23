@@ -5,14 +5,20 @@ import fitz  # PyMuPDF
 import io
 import zipfile
 
-st.title("🧾 OCR PDF Extractor (Scanned or Hybrid)")
+# Optional: Set Tesseract path if it's not in system PATH
+# pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
-uploaded_files = st.file_uploader("Upload scanned or text-based PDFs", type="pdf", accept_multiple_files=True)
+# Optional: Set Poppler path for Windows if not in PATH
+# poppler_path = r"C:\Program Files\poppler-xx\bin"
+poppler_path = None  # leave as None if already in PATH
 
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'  # Update path if needed
+st.set_page_config(page_title="PDF OCR Extractor", layout="wide")
+st.title("📄 OCR PDF Extractor")
+st.markdown("Upload scanned or hybrid PDFs. We'll extract readable text using OCR if needed.")
+
+uploaded_files = st.file_uploader("📤 Upload PDF files", type="pdf", accept_multiple_files=True)
 
 def extract_text(pdf_bytes):
-    # Try direct text extraction (if hybrid)
     text = ""
     try:
         with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
@@ -22,32 +28,27 @@ def extract_text(pdf_bytes):
         pass
 
     if len(text.strip()) < 50:
-        # Fallback to OCR on images
-        st.info("Running OCR on image-based PDF...")
-        images = convert_from_bytes(pdf_bytes)
+        images = convert_from_bytes(pdf_bytes, poppler_path=poppler_path)
         text = ""
-        for image in images:
-            text += pytesseract.image_to_string(image)
+        for img in images:
+            text += pytesseract.image_to_string(img)
 
     return text.strip()
 
 if uploaded_files:
-    extracted_data = []
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
-        for uploaded_file in uploaded_files:
-            pdf_bytes = uploaded_file.read()
+        for file in uploaded_files:
+            pdf_bytes = file.read()
             text = extract_text(pdf_bytes)
-
-            filename = uploaded_file.name.replace(".pdf", ".txt")
+            filename = file.name.replace(".pdf", ".txt")
             zipf.writestr(filename, text)
-
-            st.subheader(f"📝 Text from {uploaded_file.name}")
-            st.text_area("", text[:5000], height=200)
+            st.subheader(f"📝 Extracted: {file.name}")
+            st.text_area("Text Preview", text[:5000], height=200)
 
     st.download_button(
-        label="⬇️ Download All OCR Results (ZIP)",
+        label="⬇️ Download All Extracted Texts (ZIP)",
         data=zip_buffer.getvalue(),
-        file_name="ocr_results.zip",
+        file_name="ocr_texts.zip",
         mime="application/zip"
     )
