@@ -1,88 +1,53 @@
 import streamlit as st
 import pytesseract
 from pdf2image import convert_from_bytes
-import pdfplumber
-import pandas as pd
-import re
-import tempfile
-import os
+import fitz  # PyMuPDF
+import io
+import zipfile
 
-st.title("Contract Metadata Extractor")
-uploaded_files = st.file_uploader("Upload PDF files", type="pdf", accept_multiple_files=True)
+st.title("🧾 OCR PDF Extractor (Scanned or Hybrid)")
 
-def extract_text_from_pdf(file):
-    try:
-        with pdfplumber.open(file) as pdf:
-            text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-            return text.strip()
-    except:
-        return ""
+uploaded_files = st.file_uploader("Upload scanned or text-based PDFs", type="pdf", accept_multiple_files=True)
 
-def extract_text_from_scanned_pdf(file):
-    images = convert_from_bytes(file.read())
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'  # Update path if needed
+
+def extract_text(pdf_bytes):
+    # Try direct text extraction (if hybrid)
     text = ""
-    for img in images:
-        text += pytesseract.image_to_string(img)
+    try:
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+            for page in doc:
+                text += page.get_text()
+    except:
+        pass
+
+    if len(text.strip()) < 50:
+        # Fallback to OCR on images
+        st.info("Running OCR on image-based PDF...")
+        images = convert_from_bytes(pdf_bytes)
+        text = ""
+        for image in images:
+            text += pytesseract.image_to_string(image)
+
     return text.strip()
 
-def extract_field(text, label):
-    match = re.search(rf"{label}[:\s\-–]*([\w\s,\.\/-]+)", text, re.IGNORECASE)
-    return match.group(1).strip() if match else "Not found"
-
-def get_document_type(text):
-    types = {
-        "nda": "NDA", "non-disclosure": "NDA",
-        "master service": "MSA",
-        "statement of work": "SOW",
-        "order form": "Order Form",
-        "change order": "Change Order",
-        "data processing": "DPA",
-        "amendment": "Amendment",
-        "addendum": "Amendment",
-        "quote": "Quote",
-        "invoice": "Invoice"
-    }
-    for key, val in types.items():
-        if key in text.lower():
-            return val
-    return "Other"
-
-def get_term_type(text):
-    if "perpetual" in text.lower():
-        return "Perpetual"
-    elif "effective date" in text.lower() or "term of" in text.lower():
-        return "Fixed"
-    return "Unknown"
-
-def get_completeness(text):
-    return "Yes" if len(text) > 500 else "Possibly Incomplete"
-
-results = []
-
 if uploaded_files:
-    for file in uploaded_files:
-        st.write(f"Processing: {file.name}")
-        text = extract_text_from_pdf(file)
-        if not text or len(text.strip()) < 50:
-            text = extract_text_from_scanned_pdf(file)
+    extracted_data = []
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zipf:
+        for uploaded_file in uploaded_files:
+            pdf_bytes = uploaded_file.read()
+            text = extract_text(pdf_bytes)
 
-        metadata = {
-            "Document Name": file.name,
-            "Document Type": get_document_type(text),
-            "Term Type": get_term_type(text),
-            "Effective Date": extract_field(text, "Effective Date"),
-            "Expiry Date": extract_field(text, "Expiry Date"),
-            "Customer Legal Entity": extract_field(text, "Circle K"),
-            "Supplier Legal Entity": extract_field(text, "Inc|LLC|Ltd|GmbH"),
-            "Governing Law": extract_field(text, "Governing Law"),
-            "Payment Terms": extract_field(text, "Payment Terms"),
-            "Is Document Complete?": get_completeness(text),
-            "Missing Exhibits or Schedules": "Check manually"
-        }
-        results.append(metadata)
+            filename = uploaded_file.name.replace(".pdf", ".txt")
+            zipf.writestr(filename, text)
 
-    df = pd.DataFrame(results)
-    st.dataframe(df)
+            st.subheader(f"📝 Text from {uploaded_file.name}")
+            st.text_area("", text[:5000], height=200)
 
-    csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button("Download CSV", csv, "contract_metadata.csv", "text/csv")
+    st.download_button(
+        label="⬇️ Download All OCR Results (ZIP)",
+        data=zip_buffer.getvalue(),
+        file_name="ocr_results.zip",
+        mime="application/zip"
+    )
