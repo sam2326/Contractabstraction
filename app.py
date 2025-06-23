@@ -1,26 +1,27 @@
 import streamlit as st
-import fitz  # PyMuPDF
-import pytesseract
-from PIL import Image
 import pandas as pd
-import io
 import re
-from datetime import datetime, timedelta
+from pdf2docx import Converter
+from docx import Document
+import os
+import tempfile
 
-st.set_page_config(page_title="Contract Metadata Extractor", layout="wide")
-st.title("📄 Contract Metadata Extractor (with OCR)")
+st.set_page_config(page_title="PDF to Word Contract Extractor", layout="wide")
+st.title("📄 Contract Metadata Extractor (PDF → Word)")
 
-# --- Helpers ---
-def extract_text_from_pdf(uploaded_file):
-    text = ""
-    with fitz.open(stream=uploaded_file.read(), filetype="pdf") as doc:
-        for page in doc:
-            page_text = page.get_text()
-            if not page_text.strip():
-                pix = page.get_pixmap(dpi=300)
-                img = Image.open(io.BytesIO(pix.tobytes("png")))
-                page_text = pytesseract.image_to_string(img)
-            text += page_text + "\n"
+def convert_pdf_to_docx(pdf_file):
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
+        temp_pdf.write(pdf_file.read())
+        temp_pdf_path = temp_pdf.name
+    docx_path = temp_pdf_path.replace(".pdf", ".docx")
+    cv = Converter(temp_pdf_path)
+    cv.convert(docx_path, start=0, end=None)
+    cv.close()
+    return docx_path
+
+def extract_text_from_docx(docx_path):
+    doc = Document(docx_path)
+    text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
     return text
 
 def detect_document_type(text):
@@ -28,134 +29,99 @@ def detect_document_type(text):
     keywords = {
         "NDA": ["non-disclosure", "confidentiality"],
         "MSA": ["master services agreement"],
-        "SOW": ["statement of work", "sow effective date"],
-        "DPA": ["data processing agreement", "controller", "processor"],
-        "EULA": ["end user license", "eula"],
+        "SOW": ["statement of work"],
+        "DPA": ["data processing agreement"],
+        "EULA": ["end user license"],
         "Order Form": ["order form"],
-        "Quote": ["quotation", "quote", "pricing"],
-        "Amendment": ["amendment", "modification"],
-        "Lease": ["lease agreement", "rent"],
-        "Maintenance Agreement": ["maintenance agreement", "support service"]
+        "Quote": ["quote", "quotation"],
+        "Amendment": ["amendment", "addendum"],
+        "Lease": ["lease agreement"],
+        "Maintenance Agreement": ["maintenance agreement"]
     }
     for doc_type, keys in keywords.items():
         if any(k in t for k in keys):
             return doc_type
     return "Unknown"
 
-def detect_term_type(text):
-    t = text.lower()
-    if "perpetual" in t or "until terminated" in t:
-        return "Perpetual"
-    if any(x in t for x in ["expires", "valid for", "term of", "terminate", "continue through", "remain in effect"]):
-        return "Fixed"
-    return ""
-
-def extract_date(text, label):
-    patterns = [
-        rf"(?i){label}.*?(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{{1,2}},\s+\d{{4}}",
-        r"(?i)this agreement.*?(is )?(made and )?(entered into )?(as of )?(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}",
-        r"(?i)dated\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}"
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            date_match = re.search(r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}", match.group(), re.IGNORECASE)
-            if date_match:
-                return date_match.group(0)
-    return ""
-
-def extract_relative_expiry(text, eff_date):
-    if not eff_date:
-        return ""
-    match = re.search(r"(?i)(remain in effect|continue|valid).*?(three\s*\(3\)|two\s*\(2\)|one\s*\(1\)|1|2|3|one|two|three).*?(year|years)", text)
+def extract_effective_date(text):
+    match = re.search(r"effective\s+(?:date|as of)\s*[:\-]?\s*(\w+ \d{1,2}, \d{4})", text, re.IGNORECASE)
     if match:
-        val = match.group(2).lower().strip()
-        years_map = {
-            "one": 1, "one (1)": 1, "1": 1,
-            "two": 2, "two (2)": 2, "2": 2,
-            "three": 3, "three (3)": 3, "3": 3
-        }
-        val = re.sub(r"[^a-z0-9]", "", val)
+        return match.group(1)
+    match = re.search(r"dated\s+(\w+ \d{1,2}, \d{4})", text, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return ""
+
+def extract_expiry_date(text, effective):
+    match = re.search(r"(term|remain in effect).*?(one|two|three|1|2|3).*?(year|years)", text, re.IGNORECASE)
+    if match and effective:
+        years_map = {"one": 1, "two": 2, "three": 3, "1": 1, "2": 2, "3": 3}
+        years = years_map.get(match.group(2).lower(), 0)
         try:
-            years = years_map.get(val, 0)
-            start = datetime.strptime(eff_date, "%B %d, %Y")
-            return (start + timedelta(days=365 * years)).strftime("%B %d, %Y")
+            from datetime import datetime, timedelta
+            dt = datetime.strptime(effective, "%B %d, %Y")
+            return (dt + timedelta(days=365 * years)).strftime("%B %d, %Y")
         except:
             return ""
     return ""
 
-def extract_entity(text, entity_list):
-    for e in entity_list:
-        if re.search(rf"\b{re.escape(e)}\b", text, re.IGNORECASE):
-            return e
-    return ""
-
-def extract_entities_from_intro(text):
-    patterns = [
-        r"(?i)between\s+(.*?Stores Inc\.|.*?Communications, Inc\.|.*?Inc\.|.*?LLC|.*?Ltd\.|.*?Corporation|.*?Company)[\s,\n]+and\s+(.*?Inc\.|.*?LLC|.*?Ltd\.|.*?Corporation|.*?Company)",
-        r"(?i)this agreement.*?by and between\s+(.*?Inc\.|.*?LLC|.*?Ltd\.|.*?Corporation|.*?Company)\s+and\s+(.*?Inc\.|.*?LLC|.*?Ltd\.|.*?Corporation|.*?Company)"
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            return match.group(1).strip(), match.group(2).strip()
+def extract_entities(text):
+    match = re.search(r"between\s+(.*?)\s+and\s+(.*?)[\.,\n]", text, re.IGNORECASE)
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
     return "", ""
 
 def extract_governing_law(text):
     match = re.search(r"governed by the laws of\s+(?:the\s+)?(?:state|province)?\s*of\s*([A-Za-z\s]+)[\.,\n]", text, re.IGNORECASE)
     return match.group(1).strip() if match else ""
 
-def extract_payment_term(text):
+def extract_payment_terms(text):
     match = re.search(r"net\s+(30|45|60|90)", text, re.IGNORECASE)
-    return match.group(1) if match else "Not specified"
+    return match.group(1) + " days" if match else "Not specified"
 
 def detect_missing_exhibits(text):
-    if re.search(r"(exhibit|schedule|order form)", text, re.IGNORECASE):
-        if not re.search(r"(attached|included|annexed)", text, re.IGNORECASE):
+    if "exhibit" in text.lower() or "schedule" in text.lower():
+        if not any(x in text.lower() for x in ["attached", "included", "annexed"]):
             return "Yes"
     return "No"
 
-# --- Main Extraction ---
-def extract_fields(text):
-    effective = extract_date(text, "effective|start date|commence")
-    expiry = extract_date(text, "expire|end date|terminate") or extract_relative_expiry(text, effective)
-    customer = extract_entity(text, ["Circle K Stores Inc.", "Couche-Tard", "Mac's Convenience Stores"])
-    supplier = extract_entity(text, ["Zycus Inc.", "Zillion", "Zoom Video Communications, Inc.", "PDI", "Worldline", "Workday"])
-    if not customer or not supplier:
-        c2, s2 = extract_entities_from_intro(text)
-        customer = customer or c2
-        supplier = supplier or s2
+def extract_fields_from_text(text):
+    effective = extract_effective_date(text)
+    expiry = extract_expiry_date(text, effective)
+    customer, supplier = extract_entities(text)
     return {
         "Document Type": detect_document_type(text),
-        "Term Type": detect_term_type(text),
+        "Term Type": "Perpetual" if "perpetual" in text.lower() else "Fixed",
         "Effective Date": effective,
         "Expiry Date": expiry,
         "Customer Legal Entity": customer,
         "Supplier Legal Entity": supplier,
         "Governing Law": extract_governing_law(text),
-        "Payment Term": extract_payment_term(text),
+        "Payment Term": extract_payment_terms(text),
         "Is Document Complete?": "Yes",
         "Missing Exhibits/Schedules?": detect_missing_exhibits(text),
         "Comments": ""
     }
 
-# --- UI ---
-uploaded_files = st.file_uploader("Upload PDF contracts", type="pdf", accept_multiple_files=True)
+uploaded_files = st.file_uploader("Upload contract PDFs", type="pdf", accept_multiple_files=True)
 
 if uploaded_files:
-    rows = []
-    for file in uploaded_files:
-        with st.spinner(f"Processing {file.name}..."):
-            text = extract_text_from_pdf(file)
-            fields = extract_fields(text)
-            fields["File Name"] = file.name
-            rows.append(fields)
+    results = []
+    for uploaded_file in uploaded_files:
+        with st.spinner(f"Processing {uploaded_file.name}..."):
+            docx_path = convert_pdf_to_docx(uploaded_file)
+            text = extract_text_from_docx(docx_path)
+            fields = extract_fields_from_text(text)
+            fields["File Name"] = uploaded_file.name
+            results.append(fields)
+            os.remove(docx_path)
 
-    df = pd.DataFrame(rows)[["File Name", "Document Type", "Term Type", "Effective Date", "Expiry Date",
-                             "Customer Legal Entity", "Supplier Legal Entity", "Governing Law", "Payment Term",
-                             "Is Document Complete?", "Missing Exhibits/Schedules?", "Comments"]]
+    df = pd.DataFrame(results)[["File Name", "Document Type", "Term Type", "Effective Date", "Expiry Date",
+                                "Customer Legal Entity", "Supplier Legal Entity", "Governing Law", "Payment Term",
+                                "Is Document Complete?", "Missing Exhibits/Schedules?", "Comments"]]
 
     st.success("✅ Extraction complete.")
     st.dataframe(df, use_container_width=True)
+
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button("📥 Download CSV", csv, "contract_metadata.csv", "text/csv")
