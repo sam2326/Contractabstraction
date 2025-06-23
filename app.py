@@ -9,7 +9,7 @@ import zipfile
 # pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 # Optional: Set Poppler path for Windows if not in PATH
-# poppler_path = r"C:\Program Files\poppler-xx\bin"
+# poppler_path = r"C:\Users\SUNUM\Downloads\Release-24.08.0-0\poppler-24.08.0\Library\bin"
 poppler_path = None  # leave as None if already in PATH
 
 st.set_page_config(page_title="PDF OCR Extractor", layout="wide")
