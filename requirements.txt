@@ -1,6 +1,6 @@
 streamlit
-pymupdf
-pytesseract
-pillow
+pdf2docx
+python-docx
 pandas
+
 
