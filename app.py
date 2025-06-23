@@ -52,19 +52,24 @@ def detect_term_type(text):
     return ""
 
 def extract_date(text, label):
-    pattern = rf"(?i){label}.*?(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{{1,2}},\s+\d{{4}}"
-    match = re.search(pattern, text)
-    if match:
-        date_match = re.search(r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}", match.group(), re.IGNORECASE)
-        if date_match:
-            return date_match.group(0)
+    patterns = [
+        rf"(?i){label}.*?(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{{1,2}},\s+\d{{4}}",
+        r"(?i)this agreement.*?as of\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}",
+        r"(?i)dated\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}"
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            date_match = re.search(r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}", match.group(), re.IGNORECASE)
+            if date_match:
+                return date_match.group(0)
     return ""
 
 def extract_relative_expiry(text, eff_date):
-    match = re.search(r"valid.*?(one|two|three|1|2|3).*?year", text, re.IGNORECASE)
+    match = re.search(r"(?i)(remain in effect|continue).*?(one|two|three|1|2|3).*?(year|years)", text)
     if match and eff_date:
         years = {"one": 1, "two": 2, "three": 3, "1": 1, "2": 2, "3": 3}
-        val = match.group(1).lower()
+        val = match.group(2).lower()
         try:
             base = datetime.strptime(eff_date, "%B %d, %Y")
             return (base + timedelta(days=365 * years[val])).strftime("%B %d, %Y")
